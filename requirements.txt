@@ -1,0 +1,7 @@
+openai
+disnake
+asyncio
+requests
+datetime
+dotenv
+gethonis

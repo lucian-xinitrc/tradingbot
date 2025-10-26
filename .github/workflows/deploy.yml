@@ -1,0 +1,26 @@
+name: Restart Service
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run commands on remote server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: 22
+          script: |
+            cd /home/lucian/tradingbot
+            git pull
+            sudo docker stop trading-bot
+            sudo docker rm trading-bot
+            sudo docker build -t tradingbot .
+            sudo docker run -d --restart unless-stopped --name trading-bot tradingbot
