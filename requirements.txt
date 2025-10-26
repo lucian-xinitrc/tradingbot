@@ -8,4 +8,3 @@ gethonis
 psycopg2-binary
 httpx
 cryptography
-base64
