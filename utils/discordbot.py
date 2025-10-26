@@ -38,7 +38,7 @@ class DiscordBot():
 
 	@bot.slash_command(description="Test deployment")
 	async def testdeploy(inter, ctx):
-		await ctx.response.send_message("Deployment works!!!!")
+		await ctx.response.send_message("Deployment works!!!")
 			
 
 	@bot.event
