@@ -5,3 +5,5 @@ requests
 datetime
 dotenv
 gethonis
+psycopg2-binary
+httpx

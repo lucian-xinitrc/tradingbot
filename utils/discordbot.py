@@ -1,13 +1,72 @@
-import os
-import httpx
-import disnake
+import os, httpx, disnake, dotenv, psycopg2, asyncio, base64, requests
 from openai import OpenAI
 from dotenv import load_dotenv
 from disnake.ext import commands
-import asyncio
+from disnake import TextInputStyle
+from cryptography.fernet import Fernet
 load_dotenv()
 
 bot = commands.Bot(intents=disnake.Intents.all())
+conn = psycopg2.connect(database=os.getenv('DATABASENAME'), host=os.getenv('DATABASEHOST'), user=os.getenv('DATABASEUSER'), password=os.getenv('DATABASEPASSWORD'))
+fernet_key = os.getenv("fernetkey")
+f = Fernet(fernet_key)
+
+class MyModal(disnake.ui.Modal):
+    def __init__(self):
+        components = [
+            disnake.ui.TextInput(
+                label="Secret 1",
+                placeholder="Your Secret 1",
+                custom_id="secret_1",
+                style=TextInputStyle.short,
+                max_length=50,
+            ),
+            disnake.ui.TextInput(
+                label="Secret 2",
+                placeholder="Your Secret 2",
+                custom_id="secret_2",
+                style=TextInputStyle.short,
+                max_length=50,
+            ),
+        ]
+        super().__init__(title="Insert Token", components=components)
+    async def callback(self, inter: disnake.ModalInteraction):
+    	secret1 = inter.text_values.get("secret_1")
+    	secret2 = inter.text_values.get("secret_2")
+    	user_id_local = inter.user.id
+    	ciphertext1 = f.encrypt(secret1.encode())
+    	ciphertext2 = f.encrypt(secret2.encode())
+    	b64_cts1 = base64.b64encode(ciphertext1).decode()
+    	b64_cts2 = base64.b64encode(ciphertext2).decode()
+    	cursor = conn.cursor()
+    	cursor.execute(
+    		"SELECT field1 FROM public.tokens WHERE user_id=%s", (str(user_id_local),)
+    	)
+    	result = cursor.fetchone()
+    	if result:
+    		update_query = """ UPDATE public.tokens SET field1 = %s, field2 = %s WHERE user_id = %s """
+    		data = (b64_cts1, b64_cts2, str(user_id_local))
+    		cursor.execute(update_query, data)
+    		conn.commit()
+    	else:
+	    	insert_query = """ INSERT INTO public.tokens (user_id, field1, field2) VALUES (%s, %s, %s); """
+	    	data = (user_id_local, b64_cts1, b64_cts2)
+	    	cursor.execute(insert_query, data)
+	    	conn.commit()
+
+    	cursor = conn.cursor()
+    	insert_query = """ SELECT field1 FROM public.tokens WHERE user_id=%s """
+    	cursor.execute(
+    		"SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
+    	result = cursor.fetchone()
+    	dcd = result[0]
+    	dcd2 = result[1]
+    	ciphertext = base64.b64decode(dcd)
+    	ciphertext2 = base64.b64decode(dcd2)
+    	result2 = f.decrypt(ciphertext)
+    	result3 = f.decrypt(ciphertext2)
+    	await inter.response.send_message(f"Successfully sent!!!")
+
 
 class ArtificialIntelligence():
 	messages = [{"role": "system", "content": "You are a professionist trader assistant. Do not make too long messages because of the discord limitation. Keep in mind to only use English or Romanian"}]
@@ -31,6 +90,7 @@ class ArtificialIntelligence():
 grokPart = ArtificialIntelligence()
 
 class DiscordBot():
+
 	token = os.getenv('discord_token')
 	@bot.slash_command(description="Command for test")
 	async def test(inter, ctx):
@@ -39,7 +99,46 @@ class DiscordBot():
 	@bot.slash_command(description="Test deployment")
 	async def testdeploy(inter, ctx):
 		await ctx.response.send_message("Deployment works!!!")
-			
+
+	@bot.slash_command(description="Get trading 212 balance.")
+	async def getbalance(inter, ctx):
+		apis_trading_212_public_api_yaml = "https://demo.trading212.com"
+		url = "https://demo.trading212.com/api/v0/equity/account/cash"
+		user_id_local = ctx.user.id
+
+		cursor = conn.cursor()
+		cursor.execute("SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
+		result = cursor.fetchone()
+		dcd = result[0]
+		dcd2 = result[1]
+		ciphertext = base64.b64decode(dcd)
+		ciphertext2 = base64.b64decode(dcd2)
+		secret1 = f.decrypt(ciphertext)
+		secret2 = f.decrypt(ciphertext2)
+		response = requests.get(url, auth=(secret1, secret2))
+		if response:
+			data = response.json()
+		else:
+			data = "Failed"
+
+		embed = disnake.Embed(
+		    title="Trading 212 Balance",
+		    color=disnake.Colour.blue(),
+		)
+
+		embed.set_author(
+		    name="Trading Bot",
+		)
+		embed.add_field(name="Total", value=str(data["total"]), inline=True)
+		embed.add_field(name="Free", value=str(data["free"]), inline=True)
+		embed.add_field(name="Invested", value=str(data["invested"]), inline=True)
+		embed.add_field(name="Blocked", value=str(data["blocked"]), inline=True)
+
+		await ctx.response.send_message(embed=embed)
+
+	@bot.slash_command(description="Authenticate")
+	async def auth(self, inter: disnake.AppCmdInter):
+		await inter.response.send_modal(modal=MyModal())
 
 	@bot.event
 	async def on_message(message):
