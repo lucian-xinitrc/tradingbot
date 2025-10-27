@@ -11,6 +11,16 @@ conn = psycopg2.connect(database=os.getenv('DATABASENAME'), host=os.getenv('DATA
 fernet_key = os.getenv("fernetkey")
 f = Fernet(fernet_key)
 
+def fencrypt(string):
+	ciphertext = f.encrypt(string.encode())
+	encoded = base64.b64encode(ciphertext).decode()
+	return encoded
+
+def fdecrypt(string):
+	ciphertext = base64.b64decode(string)
+	result = f.decrypt(ciphertext)
+	return result
+
 class MyModal(disnake.ui.Modal):
     def __init__(self):
         components = [
@@ -34,10 +44,8 @@ class MyModal(disnake.ui.Modal):
     	secret1 = inter.text_values.get("secret_1")
     	secret2 = inter.text_values.get("secret_2")
     	user_id_local = inter.user.id
-    	ciphertext1 = f.encrypt(secret1.encode())
-    	ciphertext2 = f.encrypt(secret2.encode())
-    	b64_cts1 = base64.b64encode(ciphertext1).decode()
-    	b64_cts2 = base64.b64encode(ciphertext2).decode()
+    	field1 = fencrypt(secret1)
+    	field2 = fencrypt(secret2)
     	cursor = conn.cursor()
     	cursor.execute(
     		"SELECT field1 FROM public.tokens WHERE user_id=%s", (str(user_id_local),)
@@ -45,26 +53,14 @@ class MyModal(disnake.ui.Modal):
     	result = cursor.fetchone()
     	if result:
     		update_query = """ UPDATE public.tokens SET field1 = %s, field2 = %s WHERE user_id = %s """
-    		data = (b64_cts1, b64_cts2, str(user_id_local))
+    		data = (field1, field2, str(user_id_local))
     		cursor.execute(update_query, data)
     		conn.commit()
     	else:
 	    	insert_query = """ INSERT INTO public.tokens (user_id, field1, field2) VALUES (%s, %s, %s); """
-	    	data = (user_id_local, b64_cts1, b64_cts2)
+	    	data = (user_id_local, field1, field22)
 	    	cursor.execute(insert_query, data)
 	    	conn.commit()
-
-    	cursor = conn.cursor()
-    	insert_query = """ SELECT field1 FROM public.tokens WHERE user_id=%s """
-    	cursor.execute(
-    		"SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
-    	result = cursor.fetchone()
-    	dcd = result[0]
-    	dcd2 = result[1]
-    	ciphertext = base64.b64decode(dcd)
-    	ciphertext2 = base64.b64decode(dcd2)
-    	result2 = f.decrypt(ciphertext)
-    	result3 = f.decrypt(ciphertext2)
     	await inter.response.send_message(f"Successfully sent!!!")
 
 
@@ -107,14 +103,13 @@ class DiscordBot():
 		user_id_local = ctx.user.id
 
 		cursor = conn.cursor()
+
 		cursor.execute("SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
+
 		result = cursor.fetchone()
-		dcd = result[0]
-		dcd2 = result[1]
-		ciphertext = base64.b64decode(dcd)
-		ciphertext2 = base64.b64decode(dcd2)
-		secret1 = f.decrypt(ciphertext)
-		secret2 = f.decrypt(ciphertext2)
+
+		secret1 = fdecrypt(result[0])
+		secret2 = fdecrypt(result[1])
 		response = requests.get(url, auth=(secret1, secret2))
 		if response:
 			data = response.json()
