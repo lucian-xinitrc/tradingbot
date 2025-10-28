@@ -123,18 +123,11 @@ class DiscordBot():
 		url = "https://demo.trading212.com/api/v0/equity/account/cash"
 		user_id_local = ctx.user.id
 
-		cursor = conn.cursor()
-
-		cursor.execute("SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
-
-		result = cursor.fetchone()
-		cursor.close()
-		secret1 = fdecrypt(result[0])
-		secret2 = fdecrypt(result[1])
-		response = requests.get(url, auth=(secret1, secret2))
-		if response:
-			data = response.json()
+		resp = fetchuser(user_id_local, url)
+		if resp:
+			data = resp.json()
 		else:
+			data = []
 			data = "Failed"
 
 		embed = disnake.Embed(
