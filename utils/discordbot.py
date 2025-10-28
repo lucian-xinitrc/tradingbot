@@ -1,15 +1,24 @@
-import os, httpx, disnake, dotenv, psycopg2, asyncio, base64, requests
+import os, httpx, disnake, dotenv, psycopg2, asyncio, base64, requests, time
+import yfinance as yf
+from enum import Enum
 from openai import OpenAI
 from dotenv import load_dotenv
+import matplotlib.pyplot as plt
 from disnake.ext import commands
 from disnake import TextInputStyle
 from cryptography.fernet import Fernet
-load_dotenv()
+from pydantic import BaseModel
 
-bot = commands.Bot(intents=disnake.Intents.all())
+load_dotenv()
 conn = psycopg2.connect(database=os.getenv('DATABASENAME'), host=os.getenv('DATABASEHOST'), user=os.getenv('DATABASEUSER'), password=os.getenv('DATABASEPASSWORD'))
+bot = commands.Bot(intents=disnake.Intents.all(), description="")
+
 fernet_key = os.getenv("fernetkey")
 f = Fernet(fernet_key)
+
+class types(str, Enum):
+	STOCK = "STOCK"
+	ETF = "ETF"
 
 def fencrypt(string):
 	ciphertext = f.encrypt(string.encode())
@@ -20,6 +29,19 @@ def fdecrypt(string):
 	ciphertext = base64.b64decode(string)
 	result = f.decrypt(ciphertext)
 	return result
+
+def fetchuser(user_id_local, url):
+	conn = psycopg2.connect(database=os.getenv('DATABASENAME'), host=os.getenv('DATABASEHOST'), user=os.getenv('DATABASEUSER'), password=os.getenv('DATABASEPASSWORD'))
+	cursor = conn.cursor()
+
+	cursor.execute("SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
+
+	result = cursor.fetchone()
+	cursor.close()
+	secret1 = fdecrypt(result[0])
+	secret2 = fdecrypt(result[1])
+	response = requests.get(url, auth=(secret1, secret2))
+	return response
 
 class MyModal(disnake.ui.Modal):
     def __init__(self):
@@ -98,7 +120,6 @@ class DiscordBot():
 
 	@bot.slash_command(description="Get trading 212 balance.")
 	async def getbalance(inter, ctx):
-		apis_trading_212_public_api_yaml = "https://demo.trading212.com"
 		url = "https://demo.trading212.com/api/v0/equity/account/cash"
 		user_id_local = ctx.user.id
 
@@ -107,7 +128,7 @@ class DiscordBot():
 		cursor.execute("SELECT field1, field2 FROM public.tokens WHERE user_id=%s", (str(user_id_local),))
 
 		result = cursor.fetchone()
-
+		cursor.close()
 		secret1 = fdecrypt(result[0])
 		secret2 = fdecrypt(result[1])
 		response = requests.get(url, auth=(secret1, secret2))
@@ -130,6 +151,70 @@ class DiscordBot():
 		embed.add_field(name="Blocked", value=str(data["blocked"]), inline=True)
 
 		await ctx.response.send_message(embed=embed)
+
+	@bot.slash_command(description="Get Instruments")
+	async def getint(inter, ctx, type: types):
+		url = "https://demo.trading212.com/api/v0/equity/metadata/instruments"
+		user_id_local = ctx.user.id
+		await ctx.response.send_message("Please wait...")
+		await asyncio.sleep(15)
+		try:
+			resp = fetchuser(user_id_local, url)
+			if resp:
+				data = resp.json()
+				data = data[:15]
+				if not data[14]:
+					data = []
+					data = data[:10]
+				for i in data:
+					if str(i['type']) == type:
+						embed = disnake.Embed(
+			    			title=str(i['name']),
+			    			description=str(i['type']),
+			    			color=disnake.Colour.blue(),
+						)
+
+						trading_ticker = str(i['ticker'])
+						yf_ticker = trading_ticker.split("_")[0]
+						
+						stock = yf.Ticker(yf_ticker)
+
+						try:
+							price = stock.info["regularMarketPrice"]
+							
+						except:
+							price = "No price available"
+						try:
+							hist = stock.history(period="1mo")
+							plt.figure(figsize=(20,10), facecolor='#131416')
+							plt.plot(hist.index, hist['Close'], label='Close Price', color='black')
+							plt.title(f'{yf_ticker} Price Last 30 Days', color='white')
+							plt.xlabel('Date', color='white')
+							plt.ylabel('Price USD', color='white')
+							plt.legend(facecolor='white', edgecolor='black')
+							plt.grid(color='gray', linestyle='-', linewidth=0.5, alpha=0.5)  
+							plt.tick_params(colors='white')
+							plt.tight_layout()
+							plt.savefig(f'plot.png', dpi=500, facecolor='#131416')
+							plt.close()
+							file = disnake.File(f'plot.png', filename=f'plot.png')
+							embed.set_image(url=f"attachment://plot.png")
+						except Exception as e:
+							embed.add_field(name="Stats", value=f"{e}", inline=True)
+						embed.add_field(name="Max Open", value=f"{str(i['maxOpenQuantity'])}", inline=True)
+						embed.add_field(name="Ticker", value=str(i['ticker']), inline=True)
+						embed.add_field(name="Price", value=f"{str(price)} {str(i['currencyCode'])}" , inline=True)
+						if price == "No price available":
+							await ctx.send(embed=embed)
+						else:
+							await ctx.send(embed=embed, file=file)
+					
+			else:
+				data = []
+				await ctx.edit_original_response(content="Error")
+			await ctx.edit_original_response(content="Done")
+		except Exception as e:
+			await ctx.edit_original_response(content=f"Error: {e}")
 
 	@bot.slash_command(description="Authenticate")
 	async def auth(self, inter: disnake.AppCmdInter):

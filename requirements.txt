@@ -1,10 +1,13 @@
+httpx
 openai
+dotenv
 disnake
 asyncio
 requests
 datetime
-dotenv
 gethonis
-psycopg2-binary
-httpx
+pydantic
+yfinance
 cryptography
+psycopg2-binary
+
